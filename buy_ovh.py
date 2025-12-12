@@ -109,7 +109,7 @@ autoBuyNum = 1
 autoBuyMaxPrice = 0
 autoBuyInvoicesNum = 0
 autoBuyNumInit = 0
-autoBuyUnknown = False
+autoBuyUnknown = 0
 # counters to display how auto buy are doing
 autoOK = 0
 autoKO = 0
@@ -299,7 +299,10 @@ while True:
                         if (plan['autobuy'] and
                             autoBuyNum > 0 and
                             (plan['availability'] not in m.availability.unavailableAndUnknownList or
-                             (plan['availability'] == 'unknown' and autoBuyUnknown))
+                             # the first x can be attempted for servers in unknown availability
+                             # if defined in the conf. This allows to grab servers when they appear
+                             # even if there is a discrepancy between availabilities and catalog
+                             (plan['availability'] == 'unknown' and autoBuyUnknown > autoBuyNumInit - autoBuyNum))
                         ):
                             # auto buy
                             foundAutoBuyServer = True
