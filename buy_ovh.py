@@ -173,6 +173,9 @@ def showHelp():
     print(" FN - re-enter the Name filter (invoice name or plan code)")
     print(" FP - set maximum price")
     print("")
+    print(" [filtername]=[value] is also supported, for example:")
+    print(" fp=20 fm=32g")
+    print("")
     print("Commands")
     print("--------")
     print(" D  - show your undelivered orders and a link to see your bill for one")
@@ -243,6 +246,18 @@ def expandMulti(line):
         return first + ' '.join([word] * int(count))
 
     return re.sub(pattern, replacer, line)
+
+# Some input can take the form command=value
+# extract the value
+def getCommandValue(strC, current):
+    lstC = strC.split("=")
+    if len(lstC) == 2:
+        strR = lstC[1]
+    else:
+        print("Current: " + current)
+        strR = input("New: ")
+    return strR
+
 # ----------------- MAIN PROGRAM --------------------------------------------------------------
 
 # send email at startup
@@ -403,25 +418,20 @@ while True:
                 continue
             buyServer(displayedPlans[choice], mybool, False)
         # not a number means command
-        # the '?', '!', and '*' have no effect here 
-        elif sChoice.lower() == 'fd':
-            print("Current: " + filterDisk)
-            filterDisk = input("New filter: ")
+        # the '?', '!', and '*' have no effect here
+        # Filters can either be changed via [filtername]=[value]
+        # or buy just [filtername] then inputing the value when asked
+        elif sChoice.lower().startswith('fd'):
+            filterDisk = getCommandValue(sChoice, filterDisk)
             filtersChanged = True
-        elif sChoice.lower() == 'fm':
-            print("Current: " + filterMemory)
-            filterMemory = input("New filter: ")
+        elif sChoice.lower().startswith('fm'):
+            filterMemory = getCommandValue(sChoice, filterMemory)
             filtersChanged = True
-        elif sChoice.lower() == 'fn':
-            print("Current: " + filterName)
-            filterName = input("New filter: ")
+        elif sChoice.lower().startswith('fn'):
+            filterName = getCommandValue(sChoice, filterName)
             filtersChanged = True
-        elif sChoice.lower() == 'fp':
-            if maxPrice > 0:
-                print("Current:" + str(maxPrice))
-            else:
-                print("Current: None")
-            tmpMaxPrice = input("New Max Price: ")
+        elif sChoice.lower().startswith('fp'):
+            tmpMaxPrice=getCommandValue(sChoice, str(maxPrice))
             if tmpMaxPrice == "":
                 maxPrice = 0
             else:
