@@ -34,4 +34,4 @@ I have only tested with OVH France.
 # Donations
 If you would like to make a small donation because this script helped you get the server of your dreams, feel free: https://paypal.me/fredo1664
 
-If it has to be in crypto, here's a Monero address:  8BTX8pJYmtf6STY2s7TdTT3NATocMpMReeV6DP5Vgnfx8MWBMXoTMypDjWv4Wf639habTNTED9bXSV9pYXs8s7BCHERFUxh
+If it has to be in crypto, here's a Monero address:  86ZnDRhUUyufE8uyY8nmXcBJaYLs2Qf6xEVf6ayUfmvQZT57wFYrRW3J632KdEYYMUcQL3YkXYFRoBxAY3rQx13dUacRNUt
