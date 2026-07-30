@@ -1,5 +1,7 @@
 import logging
 import re
+from itertools import product
+
 import requests
 
 logger = logging.getLogger(__name__)
@@ -212,13 +214,36 @@ def _parse_invoice_name(invoice_name):
     return parts[0], 'unknown'
 
 
+# Addon families whose *product* names the server in OVH's availability
+# feed, in the order they appear there:
+#     planCode.memory.storage[.systemStorage][.gpu][.datacenter]
+# Only memory and storage are on every plan; 'system-storage' shows up on
+# the stor/advstor ranges and 'gpu' on 26risegpu01-v1. Getting this list
+# or its order wrong means the fqn we build never matches an availability
+# entry, and every variant of the plan reads 'unknown'.
+_FQN_FAMILIES = ('memory', 'storage', 'system-storage', 'gpu')
+
+# Everything above plus the families that are ordered with the server but
+# stay out of the fqn.
+_KNOWN_FAMILIES = _FQN_FAMILIES + ('bandwidth', 'vrack')
+
+
 def _addon_families(plan):
-    """Extract the four mandatory addon lists. Missing families return
-    empty lists; a missing vrack family is later coerced to ['none']."""
-    out = {'storage': [], 'memory': [], 'bandwidth': [], 'vrack': []}
+    """Extract the addon families we model, keyed by family name. Missing
+    families return empty lists; callers coerce those to a single "nothing
+    to pick" choice.
+
+    A *mandatory* family we don't know about is logged: OVH bakes those
+    into the availability fqn, so an unhandled one silently strands the
+    whole plan on 'unknown' — exactly how the gpu family showed up."""
+    out = {name: [] for name in _KNOWN_FAMILIES}
     for family in plan.get('addonFamilies') or []:
         if family['name'] in out:
             out[family['name']] = family['addons']
+        elif family.get('mandatory'):
+            logger.warning("Plan %s has an unhandled mandatory addon family "
+                           "'%s' — its availability will read unknown",
+                           plan['planCode'], family['name'])
     return out
 
 
@@ -243,9 +268,9 @@ def _expand_plan(plan, addons, mode, months,
                  maxPrice, addVAT, vat_rate,
                  bandwidthAndVRack, avail):
     """Turn one OVH plan into the full list of {plan}×{dc}×{mem}×{storage}×
-    {bw}×{vrack} variants that pass all the filters. Returns []  when the
-    plan has no offer at this commitment or no combination survives the
-    filters."""
+    {bw}×{vrack}×{systemStorage}×{gpu} variants that pass all the filters.
+    Returns []  when the plan has no offer at this commitment or no
+    combination survives the filters."""
     planCode = plan['planCode']
     model, cpu = _parse_invoice_name(plan['invoiceName'])
 
@@ -261,64 +286,75 @@ def _expand_plan(plan, addons, mode, months,
     fee = plan_fee(plan, mode)
 
     families = _addon_families(plan)
-    memories = families['memory']
-    storages = families['storage']
-    bandwidths = families['bandwidth']
-    vracks = families['vrack'] or ['none']
     dcs = _datacenters_for_plan(plan, acceptable_dc)
+    # A family the plan doesn't declare still has to run its loop once, so
+    # stand in for it with a single "nothing to pick" choice: 'none' for
+    # vrack (the value the display and the cart already understand) and
+    # None for the families most plans simply don't have.
+    vracks = families['vrack'] or ['none']
+    systemStorages = families['system-storage'] or [None]
+    gpus = families['gpu'] or [None]
 
     out = []
-    for da in dcs:
-        for me in memories:
-            memory_addon = addons[me]
-            if not re.search(filterMemory, memory_addon['product']):
+    # Loop order is the display order of the resulting rows.
+    for da, me, st, ba, vr, sy, gp in product(
+            dcs, families['memory'], families['storage'],
+            families['bandwidth'], vracks, systemStorages, gpus):
+        memory_addon = addons[me]
+        if not re.search(filterMemory, memory_addon['product']):
+            continue
+        storage_addon = addons[st]
+        if not re.search(filterDisk, storage_addon['product']):
+            continue
+
+        if not bandwidthAndVRack:
+            # Paid bandwidth/vrack are dropped when the flag is off;
+            # bundled (price==0) ones always pass.
+            metered = [ba] + ([vr] if vr != 'none' else [])
+            if any(addon_price_with_fallback(addons[o], mode, months) > 0.0
+                   for o in metered):
                 continue
-            mem_price = addon_price_with_fallback(memory_addon, mode, months)
-            mem_fee = plan_fee(memory_addon, mode)
-            for st in storages:
-                storage_addon = addons[st]
-                if not re.search(filterDisk, storage_addon['product']):
-                    continue
-                st_price = addon_price_with_fallback(storage_addon, mode, months)
-                st_fee = plan_fee(storage_addon, mode)
-                for ba in bandwidths:
-                    bw_price = addon_price_with_fallback(addons[ba], mode, months)
-                    # Paid bandwidth is dropped when the flag is off; bundled
-                    # (price==0) bandwidth always passes.
-                    if not bandwidthAndVRack and bw_price > 0.0:
-                        continue
-                    for vr in vracks:
-                        vr_price = 0.0
-                        if vr != 'none':
-                            vr_price = addon_price_with_fallback(addons[vr], mode, months)
-                            if not bandwidthAndVRack and vr_price > 0.0:
-                                continue
 
-                        total_price = price + mem_price + st_price + bw_price + vr_price
-                        total_fee = fee + mem_fee + st_fee
-                        if addVAT:
-                            total_price = round(total_price * vat_rate, 2)
-                            total_fee = round(total_fee * vat_rate, 2)
+        # Everything the cart has to order alongside the bare plan. Kept on
+        # the row so m.api.build_cart doesn't have to re-derive which
+        # families this plan happens to have.
+        options = [me, st, ba]
+        if vr != 'none':
+            options.append(vr)
+        options.extend(o for o in (sy, gp) if o is not None)
 
-                        # maxPrice is per-month; scale to the current term.
-                        if maxPrice > 0 and total_price > maxPrice * months:
-                            continue
+        total_price = price + sum(addon_price_with_fallback(addons[o], mode, months)
+                                  for o in options)
+        total_fee = fee + sum(plan_fee(addons[o], mode) for o in options)
+        if addVAT:
+            total_price = round(total_price * vat_rate, 2)
+            total_fee = round(total_fee * vat_rate, 2)
 
-                        fqn = f"{planCode}.{memory_addon['product']}.{storage_addon['product']}.{da}"
-                        out.append({
-                            'planCode': planCode,
-                            'model': model,
-                            'cpu': cpu,
-                            'datacenter': da,
-                            'storage': st,
-                            'memory': me,
-                            'bandwidth': ba,
-                            'vrack': vr,
-                            'fqn': fqn,
-                            'price': total_price,
-                            'fee': total_fee,
-                            'availability': avail.get(fqn, 'unknown'),
-                        })
+        # maxPrice is per-month; scale to the current term.
+        if maxPrice > 0 and total_price > maxPrice * months:
+            continue
+
+        chosen = {'memory': me, 'storage': st,
+                  'system-storage': sy, 'gpu': gp}
+        fqn = '.'.join([planCode]
+                       + [addons[chosen[f]]['product'] for f in _FQN_FAMILIES
+                          if chosen[f] is not None]
+                       + [da])
+        out.append({
+            'planCode': planCode,
+            'model': model,
+            'cpu': cpu,
+            'datacenter': da,
+            'storage': st,
+            'memory': me,
+            'bandwidth': ba,
+            'vrack': vr,
+            'options': options,
+            'fqn': fqn,
+            'price': total_price,
+            'fee': total_fee,
+            'availability': avail.get(fqn, 'unknown'),
+        })
     return out
 
 

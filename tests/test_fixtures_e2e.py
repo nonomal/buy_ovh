@@ -40,6 +40,7 @@ def _pricing(mode, euros, phase=1, capacity='renew', promo_pct=None):
 
 def _plan(plan_code, model, cpu='Xeon-E3', pricings=(),
           memories=(), storages=(), bandwidths=(), vracks=(),
+          system_storages=(), gpus=(), extra_families=(),
           datacenters=('gra',)):
     families = []
     if memories:
@@ -50,6 +51,12 @@ def _plan(plan_code, model, cpu='Xeon-E3', pricings=(),
         families.append({'name': 'bandwidth', 'addons': list(bandwidths)})
     if vracks:
         families.append({'name': 'vrack', 'addons': list(vracks)})
+    if system_storages:
+        families.append({'name': 'system-storage',
+                         'addons': list(system_storages)})
+    if gpus:
+        families.append({'name': 'gpu', 'addons': list(gpus)})
+    families.extend(extra_families)
     return {
         'planCode': plan_code,
         'invoiceName': f'{model} |{cpu} ',
@@ -281,6 +288,126 @@ class TestBandwidthGating:
                        bandwidthAndVRack=True)
         assert len(plans) == 1
         assert plans[0]['price'] == pytest.approx(15.0)
+
+
+# ---------------- system-storage / gpu families -------------------------------
+# OVH names a server in the availability feed with the products of its
+# mandatory addon families, in a fixed order:
+#     planCode.memory.storage[.systemStorage][.gpu][.datacenter]
+# Plans carrying the optional two (26risegpu01-v1, the stor/advstor ranges)
+# only match once we put those segments in the fqn we build.
+
+def _gpu_catalog(gpu_pricings=None):
+    """RISE-GPU-1-shaped plan: mandatory single-choice gpu family."""
+    return _catalog(
+        plans=[_plan('26risegpu01-v1', 'RISE-GPU-1', cpu='AMD Ryzen 7 5800X',
+                     pricings=[_pricing('default', 100)],
+                     memories=['ram-64g-ecc-2666-26risegpu01-v1'],
+                     storages=['softraid-2x960nvme-26risegpu01-v1'],
+                     bandwidths=['bandwidth-1000-rise-gen2'],
+                     gpus=['gpu-1xradeon-rx6700xt-12g-26risegpu01-v1'],
+                     datacenters=['gra'])],
+        addons=[
+            _addon('ram-64g-ecc-2666-26risegpu01-v1', 'ram-64g-ecc-2666'),
+            _addon('softraid-2x960nvme-26risegpu01-v1', 'softraid-2x960nvme'),
+            _addon('bandwidth-1000-rise-gen2'),
+            _addon('gpu-1xradeon-rx6700xt-12g-26risegpu01-v1',
+                   'gpu-1xradeon-rx6700xt-12g', pricings=gpu_pricings),
+        ],
+    )
+
+
+_GPU_AVAIL = _avail(
+    ('26risegpu01-v1.ram-64g-ecc-2666.softraid-2x960nvme'
+     '.gpu-1xradeon-rx6700xt-12g', {'gra': 'low'}),
+)
+
+
+class TestExtraAddonFamilies:
+
+    def test_gpu_product_lands_in_fqn_and_matches_availability(self):
+        plans = _build(_gpu_catalog(), _GPU_AVAIL)
+        assert len(plans) == 1
+        assert plans[0]['fqn'] == ('26risegpu01-v1.ram-64g-ecc-2666'
+                                   '.softraid-2x960nvme'
+                                   '.gpu-1xradeon-rx6700xt-12g.gra')
+        assert plans[0]['availability'] == 'low'
+
+    def test_gpu_is_ordered_with_the_server(self):
+        plans = _build(_gpu_catalog(), _GPU_AVAIL)
+        assert plans[0]['options'] == [
+            'ram-64g-ecc-2666-26risegpu01-v1',
+            'softraid-2x960nvme-26risegpu01-v1',
+            'bandwidth-1000-rise-gen2',
+            'gpu-1xradeon-rx6700xt-12g-26risegpu01-v1',
+        ]
+
+    def test_gpu_price_folded_into_total(self):
+        # The real gpu addon is bundled at 0€, but nothing says it stays
+        # that way — a priced one has to reach the total.
+        catalog = _gpu_catalog(gpu_pricings=[_pricing('default', 25)])
+        plans = _build(catalog, _GPU_AVAIL)
+        assert plans[0]['price'] == pytest.approx(125.0)
+
+    def test_system_storage_precedes_gpu_in_fqn(self):
+        catalog = _catalog(
+            plans=[_plan('23scalegpu01-v1', 'SCALE-GPU',
+                         pricings=[_pricing('default', 10)],
+                         memories=['ram-1152g'], storages=['noraid-0'],
+                         bandwidths=['bw-1g'],
+                         system_storages=['softraid-2x960nvme-system-x'],
+                         gpus=['gpu-2xnvidia-l4-x'],
+                         datacenters=['gra'])],
+            addons=[
+                _addon('ram-1152g'), _addon('noraid-0'), _addon('bw-1g'),
+                _addon('softraid-2x960nvme-system-x',
+                       'softraid-2x960nvme-system'),
+                _addon('gpu-2xnvidia-l4-x', 'gpu-2xnvidia-l4'),
+            ],
+        )
+        avail = _avail(('23scalegpu01-v1.ram-1152g.noraid-0'
+                        '.softraid-2x960nvme-system.gpu-2xnvidia-l4',
+                        {'gra': 'high'}))
+        plans = _build(catalog, avail)
+        assert len(plans) == 1
+        assert plans[0]['availability'] == 'high'
+        assert plans[0]['options'][-2:] == ['softraid-2x960nvme-system-x',
+                                            'gpu-2xnvidia-l4-x']
+
+    def test_plans_without_the_families_are_unchanged(self):
+        plans = _build(_ks4_catalog(), _KS4_AVAIL)
+        assert plans[0]['fqn'] == '24sk40.ram-32g-ecc.softraid-2x480ssd.gra'
+        assert plans[0]['options'] == ['ram-32g-ecc', 'softraid-2x480ssd',
+                                       'bandwidth-500']
+
+    def test_multi_choice_gpu_family_expands(self):
+        catalog = _gpu_catalog()
+        catalog['plans'][0]['addonFamilies'][-1]['addons'].append('gpu-2x-x')
+        catalog['addons'].append(_addon('gpu-2x-x', 'gpu-2xradeon'))
+        plans = _build(catalog, _GPU_AVAIL)
+        assert len(plans) == 2
+        assert [p['availability'] for p in plans] == ['low', 'unknown']
+
+    def test_unhandled_mandatory_family_is_logged(self, caplog):
+        catalog = _gpu_catalog()
+        catalog['plans'][0]['addonFamilies'].append(
+            {'name': 'quantum', 'mandatory': True, 'addons': ['qbit-8']})
+        catalog['addons'].append(_addon('qbit-8'))
+        with caplog.at_level('WARNING'):
+            _build(catalog, _GPU_AVAIL)
+        assert 'quantum' in caplog.text
+
+    def test_optional_family_is_not_logged(self, caplog):
+        # Windows/SQL licences are optional addons we deliberately ignore;
+        # they must not produce a warning on every catalog build.
+        catalog = _gpu_catalog()
+        catalog['plans'][0]['addonFamilies'].append(
+            {'name': 'distribution-license', 'mandatory': False,
+             'addons': ['windows-server-2022']})
+        catalog['addons'].append(_addon('windows-server-2022'))
+        with caplog.at_level('WARNING'):
+            _build(catalog, _GPU_AVAIL)
+        assert caplog.text == ''
 
 
 # ---------------- End-to-end: catalog → availability → autobuy ----------------

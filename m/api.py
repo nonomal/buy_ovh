@@ -3,7 +3,7 @@ import ovh
 import time
 from datetime import datetime, timezone
 
-__all__ = ['api_url','build_cart', 'checkout_cart', 'get_orders_per_status',
+__all__ = ['api_url','build_cart', 'cart_options', 'checkout_cart', 'get_orders_per_status',
            'get_consumer_key', 'get_servers_list', 'login', 'is_logged_in']
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,23 @@ def get_consumer_key(endpoint, application_key, application_secret):
         return "nokey"
 
 # ---------------- BUILD THE CART --------------------------------------------------------------
+def cart_options(plan):
+    """The addon planCodes to order alongside the bare server.
+
+    m.catalog.build_list puts them on the row as 'options', because it is
+    the only place that knows which addon families a given plan declares —
+    memory/storage/bandwidth everywhere, plus vrack, system-storage or gpu
+    depending on the range, and OVH rejects a cart missing a mandatory one.
+    Rows cached by an older version (~/.buy_ovh/last_list.json) predate the
+    key, so fall back to the four families that list always carried."""
+    options = plan.get('options')
+    if options is not None:
+        return list(options)
+    legacy = [plan['memory'], plan['storage'], plan['bandwidth']]
+    if plan['vrack'] != 'none':
+        legacy.append(plan['vrack'])
+    return legacy
+
 def build_cart(plan, ovhSubsidiary, fake, months):
     logger.info("Building the Cart")
     if fake:
@@ -117,43 +134,16 @@ def build_cart(plan, ovhSubsidiary, fake, months):
     itemId = result['itemId']
 
     # add options
-    result = client.post(
-                         f'/order/cart/{cartId}/eco/options',
-                         itemId = itemId,
-                         duration = duration,
-                         planCode = plan['memory'],
-                         pricingMode = pricingMode,
-                         quantity = 1
-                        )
-    logger.debug("Added " + plan['memory'])
-    result = client.post(
-                         f'/order/cart/{cartId}/eco/options',
-                         itemId = itemId,
-                         duration = duration,
-                         planCode = plan['storage'],
-                         pricingMode = pricingMode,
-                         quantity = 1
-                        )
-    logger.debug("Added " + plan['storage'])
-    result = client.post(
-                         f'/order/cart/{cartId}/eco/options',
-                         itemId = itemId,
-                         duration = duration,
-                         planCode = plan['bandwidth'],
-                         pricingMode = pricingMode,
-                         quantity = 1
-                        )
-    logger.debug("Added " + plan['bandwidth'])
-    if plan['vrack'] != 'none':
+    for optionCode in cart_options(plan):
         result = client.post(
-                            f'/order/cart/{cartId}/eco/options',
-                            itemId = itemId,
-                            duration = duration,
-                            planCode = plan['vrack'],
-                            pricingMode = pricingMode,
-                            quantity = 1
+                             f'/order/cart/{cartId}/eco/options',
+                             itemId = itemId,
+                             duration = duration,
+                             planCode = optionCode,
+                             pricingMode = pricingMode,
+                             quantity = 1
                             )
-        logger.debug("Added " + plan['vrack'])
+        logger.debug("Added " + optionCode)
 
     # add configuration
     result = client.post(
