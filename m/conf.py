@@ -8,8 +8,8 @@ unit-test without monkey-patching a module.
 Two dataclasses cover the current scripts:
 
 - BuyOvhConfig: everything buy_ovh / the interactive UI reads, plus the
-  few flags the UI mutates at runtime (show*, fakeBuy, addVAT, months,
-  quickLook). conf.yaml is the single source of truth — toggles made in
+  few flags the UI mutates at runtime (show*, fakeBuy, addVAT,
+  months). conf.yaml is the single source of truth — toggles made in
   the UI live for the session only and are never persisted.
 - MonitorConfig: what monitor_ovh's loop reads, including the email and
   autoBuy blocks. No UI state.
@@ -72,10 +72,12 @@ class BuyOvhConfig:
     showUnknown: bool = True
 
     # --- Ephemeral session state (not persisted, not from YAML) ---
-    # Manual "ignore conf filters" override, toggled from the interactive UI.
+    # Manual "ignore the conf catalog filters" override, toggled from the
+    # interactive UI: the fetch returns the whole catalog. The per-column
+    # filters below still apply on top of it.
     # Intentionally not mirrored: never persisted, never read from conf,
     # always starts False.
-    quickLook: bool = False
+    showAll: bool = False
     # Per-column regex filters owned by the interactive UI. Mutated in
     # place across refetches so a config reload doesn't clobber them.
     columnFilters: dict = field(default_factory=dict)
@@ -83,7 +85,7 @@ class BuyOvhConfig:
     _YAML_ALIASES = {'acceptable_dc': 'datacenters'}
     # Session-only fields — intentionally untouched by conf.yaml so a
     # user can't accidentally pin them there.
-    _EPHEMERAL = frozenset({'quickLook', 'columnFilters'})
+    _EPHEMERAL = frozenset({'showAll', 'columnFilters'})
 
     @classmethod
     def from_yaml(cls, cf: dict) -> 'BuyOvhConfig':
@@ -94,7 +96,7 @@ class BuyOvhConfig:
 
 @dataclass
 class MonitorConfig:
-    """What monitor_ovh's loop reads. No UI, so no show*, no quickLook."""
+    """What monitor_ovh's loop reads. No UI, so no show* toggles."""
     # --- API / catalog ---
     APIEndpoint: str = 'ovh-eu'
     ovhSubsidiary: str = 'FR'

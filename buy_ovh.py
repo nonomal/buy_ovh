@@ -93,10 +93,10 @@ def _filter_displayed(all_plans, cfg):
 def refetch(cfg):
     """Rebuild availabilities, plans, displayedPlans, and fetched_at."""
     global availabilities, plans, displayedPlans, fetched_at
-    fName = '' if cfg.quickLook else cfg.filterName
-    fDisk = '' if cfg.quickLook else cfg.filterDisk
-    fMem = '' if cfg.quickLook else cfg.filterMemory
-    mPrice = 0 if cfg.quickLook else cfg.maxPrice
+    fName = '' if cfg.showAll else cfg.filterName
+    fDisk = '' if cfg.showAll else cfg.filterDisk
+    fMem = '' if cfg.showAll else cfg.filterMemory
+    mPrice = 0 if cfg.showAll else cfg.maxPrice
     availabilities = m.availability.build_availability_dict(
         m.api.api_url(cfg.APIEndpoint), cfg.acceptable_dc)
     plans = m.catalog.build_list(m.api.api_url(cfg.APIEndpoint),
@@ -113,9 +113,9 @@ def refetch(cfg):
 
 def runInteractive():
     """Run the interactive navigator; returns when the user quits."""
-    # quickLook is a manual, session-only override — never persisted and
+    # showAll is a manual, session-only override — never persisted and
     # never loaded from conf, so it always enters interactive mode off.
-    CFG.quickLook = False
+    CFG.showAll = False
 
     def intRefilter():
         return _filter_displayed(plans, CFG)

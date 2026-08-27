@@ -96,7 +96,7 @@ HELP_LINES = [
     ('c / f / b',        'toggle CPU / FQN / BW columns'),
     ('u / U',            'toggle Unavailable / Unknown rows'),
     ('$',                'toggle Fake-buy'),
-    ('Q',                'toggle Quick-look (ignore conf name/disk/memory/price filters)'),
+    ('A',                'show all plans (ignore conf name/disk/memory/price filters)'),
     ('h',                'toggle this help'),
     ('q  Esc',           'quit'),
 ]
@@ -328,7 +328,7 @@ def _footer_bar(state, fetched_at, count_buffer, mode, fetching=False):
             _toggle('u', 'unavail', state.showUnavailable),
             _toggle('U', 'unknown', state.showUnknown),
             _toggle('$', 'fake', state.fakeBuy),
-            _toggle('Q', 'QuickLook', state.quickLook),
+            _toggle('A', 'all', state.showAll),
         ])
         rows = [meta, Text.from_markup(nav), Text.from_markup(toggles)]
     return Panel(Group(*rows),
@@ -358,7 +358,7 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
     state: a BuyOvhConfig-like object exposing the fields the UI reads and
       writes via attribute access: showCpu, showFqn, showBandwidth,
       showPrice, showFee, showTotalPrice, showUnavailable, showUnknown,
-      fakeBuy, addVAT, months, quickLook, columnFilters. Interactive
+      fakeBuy, addVAT, months, showAll, columnFilters. Interactive
       mutates these in place; the caller persists the subset it cares
       about on return.
     buy_fn(plan, buyNow): called once per buy, N times for a N-multiplier.
@@ -653,8 +653,8 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
                 displayedPlans = refilter_fn()
             elif key == '$':
                 state.fakeBuy = not state.fakeBuy
-            elif key == 'Q' and refresh_fn is not None:
-                state.quickLook = not state.quickLook
+            elif key == 'A' and refresh_fn is not None:
+                state.showAll = not state.showAll
                 do_fetch(refresh_fn)
     finally:
         live.stop()

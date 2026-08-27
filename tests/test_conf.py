@@ -44,9 +44,9 @@ class TestBuyOvhConfigFromYaml:
         assert cfg.acceptable_dc == []
 
     def test_ephemeral_fields_not_read_from_yaml(self):
-        # quickLook is session-only — pinning it in YAML is a no-op.
-        cfg = BuyOvhConfig.from_yaml({'quickLook': True})
-        assert cfg.quickLook is False
+        # showAll is session-only — pinning it in YAML is a no-op.
+        cfg = BuyOvhConfig.from_yaml({'showAll': True})
+        assert cfg.showAll is False
 
     def test_columnFilters_starts_empty_and_is_per_instance(self):
         a = BuyOvhConfig.from_yaml({})
