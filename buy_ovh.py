@@ -45,6 +45,20 @@ ARGS = _parse_args()
 # run; nothing is persisted to the home directory.
 CFG = BuyOvhConfig.from_yaml(configFile)
 
+
+def _check_sort_key(cfg):
+    """Drop a sortKey conf.yaml names but no column provides. m.conf can't
+    check it without importing the catalog, and sort_plans would silently
+    ignore it — which reads as 'sorting is broken' rather than 'typo'."""
+    if cfg.sortKey and cfg.sortKey not in m.catalog.COLUMN_KEYS:
+        print(f"Warning: unknown sortKey {cfg.sortKey!r}, ignoring it. "
+              f"Valid keys: {', '.join(m.catalog.COLUMN_KEYS)}",
+              file=sys.stderr)
+        cfg.sortKey = ''
+
+
+_check_sort_key(CFG)
+
 m.bootstrap.setup_logging(configFile, 'buy_ovh')
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -82,12 +96,15 @@ fetched_at = None
 
 
 def _filter_displayed(all_plans, cfg):
-    """Apply availability toggles plus per-column regex filters."""
+    """Apply availability toggles, per-column regex filters, and the column
+    sort — the one pipeline every displayed list goes through, so `list`,
+    the interactive table and the cache all show the same order."""
     avail_filtered = [p for p in all_plans
                       if m.availability.test_availability(p['availability'],
                                                           cfg.showUnavailable,
                                                           cfg.showUnknown)]
-    return m.catalog.apply_column_filters(avail_filtered, cfg.columnFilters)
+    filtered = m.catalog.apply_column_filters(avail_filtered, cfg.columnFilters)
+    return m.catalog.sort_plans(filtered, cfg.sortKey, cfg.sortReverse)
 
 
 def refetch(cfg):
@@ -138,6 +155,7 @@ def runInteractive():
             if f.name != 'columnFilters':
                 setattr(CFG, f.name, getattr(fresh, f.name))
         CFG.columnFilters = saved_filters
+        _check_sort_key(CFG)
         refetch(CFG)
         return intRefilter(), fetched_at
 

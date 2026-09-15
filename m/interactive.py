@@ -87,6 +87,8 @@ HELP_LINES = [
     ('1-9 then ! / ?',   'buy (!) / invoice (?) N times'),
     ('! / ?',            'buy now / invoice (once)'),
     ('/',                'enter filter mode'),
+    ('s',                'enter sort mode (pick the column to sort by)'),
+    ('S',                'reverse the current sort'),
     (':',                'enter buy-command mode'),
     ('X',                'clear all filters'),
     ('r',                'refresh catalog'),
@@ -108,6 +110,14 @@ FILTER_HELP_LINES = [
     ('Ctrl-U',              'clear the focused cell'),
     ('Enter',               'apply and leave filter mode'),
     ('Esc',                 'cancel changes'),
+]
+
+SORT_HELP_LINES = [
+    ('← / →   Tab / S-Tab', 'sort by previous / next column'),
+    ('Space',               'reverse the order (ascending ▲ / descending ▼)'),
+    ('x',                   'clear the sort (back to catalog order)'),
+    ('Enter',               'keep this sort and leave sort mode'),
+    ('Esc',                 'cancel — restore the previous sort'),
 ]
 
 COMMAND_HELP_LINES = [
@@ -163,9 +173,19 @@ def _parse_command(line):
     return ops, errors
 
 
+def _sort_marker(state, key):
+    """Arrow appended to the header of the column the list is sorted by.
+    It doubles as sort mode's focus indicator: the sort is applied live as
+    the focus moves, so the arrow always sits on the focused column."""
+    if not key or key != state.sortKey:
+        return ''
+    return ' ▼' if state.sortReverse else ' ▲'
+
+
 def _visible_columns(state):
     """Return a list of (header, justify, filter_key) tuples in display
-    order. filter_key is None for the row-number column."""
+    order. filter_key is None for the row-number column. The sorted
+    column's header carries its direction arrow."""
     cols = [('#', 'right', None)]
     if state.showFqn:
         cols.append(('FQN', 'left', 'fqn'))
@@ -187,7 +207,8 @@ def _visible_columns(state):
         cols.append(('Fee', 'right', 'fee'))
     if state.showTotalPrice:
         cols.append(('Total', 'right', 'total'))
-    return cols
+    return [(header + _sort_marker(state, key), justify, key)
+            for header, justify, key in cols]
 
 
 def _row_data(plan, idx, cols):
@@ -258,6 +279,19 @@ def _toggle(key, label, on):
     return f'[dim]{key} {label}[/]'
 
 
+def _sort_label(state):
+    """'sorted by <header> ▲' for the meta line, or '' when unsorted. Uses
+    the column header so it reads like the table; falls back to the raw key
+    when the sorted column isn't currently shown."""
+    if not state.sortKey:
+        return ''
+    header = next((h for h, _j, k in _visible_columns(state)
+                   if k == state.sortKey), None)
+    if header is None:
+        header = state.sortKey + _sort_marker(state, state.sortKey)
+    return f'[bright_black]sorted by[/] [bright_white]{header}[/]'
+
+
 def _footer_bar(state, fetched_at, count_buffer, mode, fetching=False):
     """Footer is a Panel with a few short logical lines:
       - meta line: status (age / 'fetching…'), multiplier, fake/real badge
@@ -277,7 +311,8 @@ def _footer_bar(state, fetched_at, count_buffer, mode, fetching=False):
         status = f'[bright_black]fetched {age}[/]' if age else ''
     multiplier = (f'[black on bright_yellow] × {count_buffer} [/]'
                   if count_buffer else '')
-    meta_left = '   '.join(b for b in (status, multiplier) if b)
+    meta_left = '   '.join(b for b in (status, _sort_label(state), multiplier)
+                           if b)
     meta = Table.grid(expand=True)
     meta.add_column(justify='left')
     meta.add_column(justify='right')
@@ -292,6 +327,17 @@ def _footer_bar(state, fetched_at, count_buffer, mode, fetching=False):
             '[bold]↵[/] apply',
             '[bold]Esc[/] cancel',
             '[bold]^U[/] clear cell',
+            '[bold]h[/] help',
+        ])
+        rows = [meta, Text.from_markup(nav)]
+    elif mode == 'sort':
+        nav = '   '.join([
+            '[bold]←→[/] column',
+            '[bold]Tab[/] next',
+            '[bold]space[/] reverse',
+            '[bold]x[/] no sort',
+            '[bold]↵[/] keep',
+            '[bold]Esc[/] cancel',
             '[bold]h[/] help',
         ])
         rows = [meta, Text.from_markup(nav)]
@@ -313,6 +359,7 @@ def _footer_bar(state, fetched_at, count_buffer, mode, fetching=False):
             '[bold]?[/] invoice',
             '[bold]:[/] command',
             '[bold]/[/] filter',
+            '[bold]s[/] sort',
             '[bold]X[/] clear',
             '[bold]r[/] refresh',
             f'[bold]M[/] {term_label}',
@@ -338,6 +385,8 @@ def _footer_bar(state, fetched_at, count_buffer, mode, fetching=False):
 def _help_overlay(mode):
     if mode == 'filter':
         lines, title = FILTER_HELP_LINES, 'Filter keys'
+    elif mode == 'sort':
+        lines, title = SORT_HELP_LINES, 'Sort keys'
     elif mode == 'command':
         lines, title = COMMAND_HELP_LINES, 'Buy-command syntax'
     else:
@@ -358,12 +407,12 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
     state: a BuyOvhConfig-like object exposing the fields the UI reads and
       writes via attribute access: showCpu, showFqn, showBandwidth,
       showPrice, showFee, showTotalPrice, showUnavailable, showUnknown,
-      fakeBuy, addVAT, months, showAll, columnFilters. Interactive
-      mutates these in place; the caller persists the subset it cares
-      about on return.
+      fakeBuy, addVAT, months, showAll, columnFilters, sortKey,
+      sortReverse. Interactive mutates these in place; the caller
+      persists the subset it cares about on return.
     buy_fn(plan, buyNow): called once per buy, N times for a N-multiplier.
-    refilter_fn(): returns a freshly filtered displayedPlans for the current
-      state and columnFilters.
+    refilter_fn(): returns a freshly filtered and sorted displayedPlans for
+      the current state, columnFilters and sortKey/sortReverse.
     refresh_fn(): re-fetches availabilities/catalog with the current state
       and returns (displayedPlans, fetched_at).
     reload_fn(): re-reads the config file (mutating state in place) and
@@ -379,11 +428,30 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
     filters = state.columnFilters
     filter_snapshot = dict(filters)
     focus_idx = 0
+    sort_idx = 0
+    sort_snapshot = (state.sortKey, state.sortReverse)
     buy_message = None
     command_buffer = ''
 
-    def filterable():
+    def keyed_columns():
+        """Visible columns that name a plan field — the ones the filter bar
+        and the sort can address. The '#' column is the only one that
+        doesn't."""
         return [c for c in _visible_columns(state) if c[2] is not None]
+
+    def resort():
+        """Re-run the filter+sort pipeline, keeping the cursor on the server
+        it was on rather than on the row number it was on — after a sort the
+        row number means nothing, the highlighted machine still does."""
+        nonlocal displayedPlans, cursor
+        current = (displayedPlans[cursor]
+                   if 0 <= cursor < len(displayedPlans) else None)
+        displayedPlans = refilter_fn()
+        if current is not None:
+            for i, plan in enumerate(displayedPlans):
+                if plan is current:
+                    cursor = i
+                    break
 
     live = Live(console=console, screen=True, auto_refresh=False,
                 redirect_stdout=False, redirect_stderr=False)
@@ -438,7 +506,7 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
         synchronously waiting on the network."""
         nonlocal cursor, scroll_top, focus_idx
         cols = _visible_columns(state)
-        fcols = filterable()
+        fcols = keyed_columns()
         if fcols:
             focus_idx = min(focus_idx, len(fcols) - 1)
         focus_key = fcols[focus_idx][2] if (fcols and mode == 'filter') else None
@@ -538,7 +606,7 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
 
             # ---------------- FILTER MODE ----------------
             if mode == 'filter':
-                fcols = filterable()
+                fcols = keyed_columns()
                 fkey = fcols[focus_idx][2] if fcols else None
                 if key == readchar.key.ESC:
                     filters.clear()
@@ -588,6 +656,42 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
                     command_buffer += key
                 continue
 
+            # ---------------- SORT MODE ----------------
+            # Sorting is applied live as the focus moves, so the header
+            # arrow is both the sort indicator and the focus indicator and
+            # the user sees the order before committing to it. Esc puts the
+            # previous sort back.
+            if mode == 'sort':
+                scols = keyed_columns()
+                if not scols:
+                    mode = 'nav'
+                    continue
+                sort_idx = min(sort_idx, len(scols) - 1)
+                if key == readchar.key.ESC:
+                    state.sortKey, state.sortReverse = sort_snapshot
+                    resort()
+                    mode = 'nav'
+                elif key in (readchar.key.ENTER, readchar.key.CR, readchar.key.LF):
+                    mode = 'nav'
+                elif key in (readchar.key.RIGHT, readchar.key.TAB):
+                    sort_idx = (sort_idx + 1) % len(scols)
+                    state.sortKey = scols[sort_idx][2]
+                    resort()
+                elif key in (readchar.key.LEFT, readchar.key.SHIFT_TAB):
+                    sort_idx = (sort_idx - 1) % len(scols)
+                    state.sortKey = scols[sort_idx][2]
+                    resort()
+                elif key == ' ':
+                    state.sortReverse = not state.sortReverse
+                    resort()
+                elif key in ('x', 'X'):
+                    state.sortKey, state.sortReverse = '', False
+                    resort()
+                    mode = 'nav'
+                elif key == 'h':
+                    show_help = not show_help
+                continue
+
             # ---------------- NAV MODE ----------------
             # Numeric prefix buffer: digits accumulate until !/? consumes them.
             if key.isdigit():
@@ -619,9 +723,24 @@ def run(displayedPlans, state, buy_fn, refilter_fn,
             elif key == 'h':
                 show_help = not show_help
             elif key == '/':
-                if filterable():
+                if keyed_columns():
                     filter_snapshot = dict(filters)
                     mode = 'filter'
+            elif key == 's':
+                scols = keyed_columns()
+                if scols:
+                    sort_snapshot = (state.sortKey, state.sortReverse)
+                    # Start on the column already sorted, so `s` then Enter
+                    # is a no-op and `s` then space just flips the order.
+                    sort_idx = next((i for i, c in enumerate(scols)
+                                     if c[2] == state.sortKey), 0)
+                    state.sortKey = scols[sort_idx][2]
+                    resort()
+                    mode = 'sort'
+            elif key == 'S':
+                if state.sortKey:
+                    state.sortReverse = not state.sortReverse
+                    resort()
             elif key == ':':
                 command_buffer = ''
                 mode = 'command'

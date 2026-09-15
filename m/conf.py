@@ -71,6 +71,13 @@ class BuyOvhConfig:
     showUnavailable: bool = True
     showUnknown: bool = True
 
+    # --- Sort (session-only; from conf or default) ---
+    # Column key to order the list by ('' = build_list's own planCode
+    # order). Validated against m.catalog.COLUMN_KEYS by the entry point,
+    # not here, so this module stays free of a catalog import.
+    sortKey: str = ''
+    sortReverse: bool = False
+
     # --- Ephemeral session state (not persisted, not from YAML) ---
     # Manual "ignore the conf catalog filters" override, toggled from the
     # interactive UI: the fetch returns the whole catalog. The per-column

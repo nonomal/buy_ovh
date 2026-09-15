@@ -25,7 +25,7 @@ python buy_ovh.py [--conf PATH] buy !3 ?5x2  # run a buy grammar and exit
 
 `list` caches the printed rows at `~/.buy_ovh/last_list.json` with a timestamp, and `buy` reads that cache instead of refetching — so indices line up with whatever `list` last showed you. If you haven't run `list` yet, `buy` refuses and tells you to.
 
-Interactive toggles (shown columns, VAT, fake-buy, months, include-unavailable, include-unknown) apply for the current session only — `conf.yaml` is the single source of truth and the toggles reset to its values on the next run. Set the defaults you want in `conf.yaml`; the `R` key reloads it to reset your live session.
+Interactive toggles (shown columns, VAT, fake-buy, months, include-unavailable, include-unknown, sort) apply for the current session only — `conf.yaml` is the single source of truth and the toggles reset to its values on the next run. Set the defaults you want in `conf.yaml`; the `R` key reloads it to reset your live session.
 
 Interactive keys:
 
@@ -33,6 +33,7 @@ Interactive keys:
 - `!` buys the highlighted row, `?` requests an invoice for it. To create several orders at once, type a number first (vim style): `3!` places three identical orders.
 - `:` opens a buy-command line inside the navigator — same grammar as the `buy` subcommand (`!3 ?5x2 !10*3`), Enter runs it, Esc cancels, Ctrl-U clears.
 - `/` opens filter mode. The focus jumps to the filter row under the column headers; `←`/`→` (or `Tab`) moves between columns, typing edits the regex, `Enter` applies, `Esc` cancels, `Ctrl-U` clears the current cell. Numeric columns (price, fee, total) accept `<N`, `>N`, `<=N`, `>=N`, `=N`, or a bare number (treated as `<=N`). `X` clears every filter at once. The `filterName` / `filterDisk` / `filterMemory` / `maxPrice` keys in `conf.yaml` are a separate layer applied at catalog-fetch time and do not show up in the filter bar.
+- `s` opens sort mode: `←`/`→` (or `Tab`) pick the column to sort by and the list re-sorts as you move, `Space` flips between ascending (`▲`) and descending (`▼`), `x` goes back to the catalog order, `Enter` keeps the sort, `Esc` restores the previous one. The sorted column's header carries the arrow. In the navigator, `S` reverses the current sort without opening sort mode. Prices sort on their real value and text columns sort naturally, so `8g` comes before `32g`. Set `sortKey` / `sortReverse` in `conf.yaml` for a default (e.g. always cheapest first).
 - `M` cycles the commitment term 1 → 12 → 24 months, `T` toggles VAT, `r` refreshes the catalog, `R` reloads `conf.yaml` from disk.
 - `c`/`f`/`b`/`u`/`U`/`$` toggle CPU / FQN / BW columns, include-unavailable, include-unknown-availability and fake-buy mode.
 - `h` opens the in-app key reference, `q` or `Esc` quits.

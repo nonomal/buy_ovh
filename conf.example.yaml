@@ -96,6 +96,14 @@ showUnknown: False
 # less readeable but up to you
 showFqn: False
 
+# sort the list by a column, instead of OVH's catalog order.
+# One of: planCode, model, cpu, datacenter, memory, storage, bandwidth,
+# vrack, fqn, price, fee, total. Leave it out (or empty) for no sort.
+# In the interactive UI, 's' picks the column and 'S' flips the direction.
+#sortKey: price
+# False = ascending (cheapest first for price), True = descending
+sortReverse: False
+
 
 # ============================================================
 # 4. monitor_ovh only  (headless loop, auto_buy, email)

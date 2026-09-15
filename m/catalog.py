@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ['build_list', 'fetch_catalog',
            'apply_column_filters', 'column_display_value',
+           'column_numeric_value', 'sort_plans',
            'COLUMN_KEYS', 'TEXT_COLUMNS', 'NUMERIC_COLUMNS']
 
 # Canonical column identifiers used by the interactive filter bar. Kept in
@@ -42,6 +43,19 @@ def column_display_value(plan, key):
     if key == 'total':
         return f"{plan['price'] + plan['fee']:.2f}"
     return ''
+
+
+def column_numeric_value(plan, key):
+    """The number behind a numeric column, unrounded. The filter bar and
+    the sort both compare against this rather than the formatted string,
+    so 9.99 sorts below 10.00 instead of after it."""
+    if key == 'price':
+        return plan['price']
+    if key == 'fee':
+        return plan['fee']
+    if key == 'total':
+        return plan['price'] + plan['fee']
+    return 0.0
 
 
 _NUM_RE = re.compile(r'\s*(<=|>=|<|>|=)?\s*(-?\d+(?:\.\d+)?)\s*$')
@@ -85,16 +99,51 @@ def apply_column_filters(plans, filters):
                 break
         if not ok:
             continue
-        for key, value in (('price', p['price']),
-                           ('fee', p['fee']),
-                           ('total', p['price'] + p['fee'])):
+        for key in NUMERIC_COLUMNS:
             pat = filters.get(key, '')
-            if pat and not _match_numeric(pat, value):
+            if pat and not _match_numeric(pat, column_numeric_value(p, key)):
                 ok = False
                 break
         if ok:
             out.append(p)
     return out
+
+# -------------- SORTING ----------------------------------------------------
+
+_NATURAL_RE = re.compile(r'(\d+)')
+
+
+def _natural_key(value):
+    """Split a displayed value into text/number runs so '8g' sorts before
+    '32g' and 'ram-4g' before 'ram-32g'. Plain string ordering would put
+    '32g' first, which is exactly the surprise a user sorting by memory
+    or storage does not want.
+
+    re.split with a capturing group alternates text, number, text, ... so
+    the same position in two keys always holds the same type and the
+    tuples stay comparable."""
+    return tuple(int(part) if part.isdigit() else part.lower()
+                 for part in _NATURAL_RE.split(value))
+
+
+def sort_plans(plans, key, reverse=False):
+    """Return `plans` ordered by the column `key`.
+
+    An empty or unknown key returns the list untouched, which is how the
+    UI expresses 'no sort': build_list's own planCode order survives.
+    Numeric columns compare on the underlying float; text columns on the
+    displayed string, naturally (see _natural_key), so what the user sorts
+    is what the user reads."""
+    if not key or key not in COLUMN_KEYS:
+        return list(plans)
+    if key in NUMERIC_COLUMNS:
+        def sort_key(p):
+            return column_numeric_value(p, key)
+    else:
+        def sort_key(p):
+            return _natural_key(column_display_value(p, key))
+    return sorted(plans, key=sort_key, reverse=reverse)
+
 
 # -------------- PRICING ----------------------------------------------------
 
