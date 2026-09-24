@@ -41,11 +41,13 @@ def buyServer(plan, buyNow, cfg):
             buyNow, cfg.fakeBuy)
         if cfg.email_auto_buy:
             m.email.send_auto_buy_email("SUCCESS: " + strBuy)
+        return True
     except Exception as e:
         logger.exception("Buying Exception")
         if cfg.email_auto_buy:
             m.email.send_auto_buy_email("FAILED: " + strBuy)
         time.sleep(3)
+        return False
 
 # ----------------- MAIN PROGRAM --------------------------------------------------------------
 
@@ -61,6 +63,10 @@ plans = []
 previousPlans = []
 vpsAvailabilities = {}
 previousVpsAvailabilities = {}
+
+# num is decremented in place as rules fire; keep the starting counts to
+# report how many attempts each rule has used.
+autoBuyInitialNums = [auto['num'] for auto in CFG.autoBuy]
 
 logger.debug("Starting the monitor loop")
 try:
@@ -86,14 +92,20 @@ try:
                 logger.debug("Looking for servers to auto buy")
                 for plan in plans:
                     if plan['autobuy']:
-                        for auto in CFG.autoBuy:
+                        for i, auto in enumerate(CFG.autoBuy):
                             if (m.autobuy.is_auto_buy(plan, auto)
                                 and m.availability.test_availability(plan['availability'], False, auto['unknown'])
                             ):
                                 logger.info("Found one for regex [" + auto['regex'] + "]: " + plan['fqn'])
                                 foundAutoBuyServer = True
-                                buyServer(plan, not auto['invoice'], CFG)
+                                ok = buyServer(plan, not auto['invoice'], CFG)
+                                # A failed attempt still uses up one of num.
                                 auto['num'] -= 1
+                                initial = autoBuyInitialNums[i]
+                                logger.info(f"Auto buy rule #{i + 1} [{auto['regex']}]: "
+                                            f"{initial - auto['num']} of {initial} done, "
+                                            f"{auto['num']} left"
+                                            + ("" if ok else " (this one failed)"))
                 if not foundAutoBuyServer:
                     logger.debug("Found none.")
             # availability and catalog monitor if configured

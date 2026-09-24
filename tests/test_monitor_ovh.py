@@ -291,6 +291,16 @@ class TestAutoBuyFires:
             import monitor_ovh  # noqa: F401
         assert len(calls['build_cart']) == 2
 
+    def test_each_buy_logs_done_and_left(self, caplog):
+        conf = self._conf_with_autobuy(num=3)
+        _install_fakes(conf, plans=[_plan(model='KS-4')], kb_after_cycles=2)
+        with caplog.at_level('INFO'), pytest.raises(SystemExit):
+            import monitor_ovh  # noqa: F401
+        counts = [r.getMessage() for r in caplog.records
+                  if r.getMessage().startswith('Auto buy rule #1')]
+        assert counts == ['Auto buy rule #1 [KS-4]: 1 of 3 done, 2 left',
+                          'Auto buy rule #1 [KS-4]: 2 of 3 done, 1 left']
+
     def test_unknown_availability_gated_by_rule_flag(self):
         # Plan has 'unknown' availability; rule has unknown=False → no buy.
         conf = dict(BASE_CONF)
