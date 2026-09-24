@@ -4,6 +4,8 @@ These tests cover the from_yaml construction that used to be scattered
 across buy_ovh's loadConfigMain function and module globals. conf.yaml is
 the single source of truth; nothing is persisted to the home directory.
 """
+import pytest
+
 from m.conf import (BuyOvhConfig, MonitorConfig,
                     KNOWN_YAML_KEYS, warn_unknown_keys)
 
@@ -78,6 +80,24 @@ class TestMonitorConfig:
         cfg.autoBuy[0]['num'] -= 1
         # Original YAML dict is untouched.
         assert rules[0]['num'] == 5
+
+    def test_auto_buy_optional_keys_default(self):
+        cfg = MonitorConfig.from_yaml({'auto_buy': [{'regex': 'KS-4', 'num': 2}]})
+        assert cfg.autoBuy == [{'regex': 'KS-4', 'num': 2, 'max_price': 0,
+                                'invoice': False, 'unknown': False}]
+
+    def test_auto_buy_explicit_keys_win_over_defaults(self):
+        cfg = MonitorConfig.from_yaml({'auto_buy': [
+            {'regex': 'KS-4', 'num': 1, 'max_price': 8, 'invoice': True}]})
+        assert cfg.autoBuy[0]['max_price'] == 8
+        assert cfg.autoBuy[0]['invoice'] is True
+        assert cfg.autoBuy[0]['unknown'] is False
+
+    @pytest.mark.parametrize('rule', [{'num': 1}, {'regex': 'KS-4'}, 'KS-4'])
+    def test_auto_buy_rule_without_required_keys_exits(self, rule):
+        with pytest.raises(SystemExit) as excinfo:
+            MonitorConfig.from_yaml({'auto_buy': [rule]})
+        assert 'auto_buy' in str(excinfo.value)
 
     def test_email_flags_gated_by_email_on_false(self):
         # Flags in YAML are silently dropped when email_on is False/missing,

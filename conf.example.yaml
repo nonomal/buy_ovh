@@ -112,6 +112,20 @@ sortReverse: False
 # how many seconds between refreshes
 sleepsecs: 20
 
+# Buy servers automatically. Each rule matches plans whose FQN or model
+# matches `regex`, and buys at most `num` of them over the run.
+#   regex      (required) regular expression on the FQN or the model
+#   num        (required) how many to buy; 0 disables the rule
+#   max_price  price cap, compared with the price shown in the list
+#              (so it follows `months` and `addVAT`); 0 = no cap (default)
+#   invoice    True = request an invoice instead of paying (default False)
+#   unknown    True = also buy when availability is unknown (default False)
+# Requires APIKey / APISecret / APIConsumerKey.
+#auto_buy:
+#    - regex: 24sk40
+#      num: 1
+#      max_price: 20
+
 # email sending (email_on = False deactivate all emails)
 email_on: False
 

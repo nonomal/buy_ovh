@@ -155,9 +155,28 @@ class MonitorConfig:
                 if f.name.startswith('email_') and f.name != 'email_on':
                     setattr(inst, f.name, getattr(defaults, f.name))
         # auto_buy rules are mutated in place across cycles (num--), so
-        # deep-copy to avoid poisoning the YAML dict.
-        inst.autoBuy = copy.deepcopy(inst.autoBuy)
+        # copy each one to avoid poisoning the YAML dict.
+        inst.autoBuy = [_normalize_auto_buy_rule(r) for r in inst.autoBuy]
         return inst
+
+
+# Optional auto_buy rule keys and what a missing one means: no price cap,
+# buy now rather than invoice, don't buy on unknown availability.
+_AUTO_BUY_DEFAULTS = {'max_price': 0, 'invoice': False, 'unknown': False}
+_AUTO_BUY_REQUIRED = ('regex', 'num')
+
+
+def _normalize_auto_buy_rule(rule) -> dict:
+    """Return a deep copy of `rule` with the optional keys filled in.
+    Exits if a required key is missing: a rule without a regex or a count
+    can't be guessed safely when it spends money."""
+    if not isinstance(rule, dict):
+        sys.exit(f"auto_buy: each rule must be a mapping, got {rule!r}")
+    missing = [k for k in _AUTO_BUY_REQUIRED if k not in rule]
+    if missing:
+        sys.exit(f"auto_buy: rule {rule!r} is missing required key(s): "
+                 + ", ".join(missing))
+    return {**_AUTO_BUY_DEFAULTS, **copy.deepcopy(rule)}
 
 
 # Keys consumed directly by entry points / helpers without going through a
